@@ -1,3 +1,14 @@
 [
-  {"question": "hihi cả nhà tự tạo testset bằng cơm nhé", "ground_truth": "Không kịp tạo luôn"},
+  {
+    "question": "Nhân viên được nghỉ phép năm bao nhiêu ngày?",
+    "ground_truth": "Nhân viên chính thức được nghỉ phép năm 12 ngày làm việc mỗi năm."
+  },
+  {
+    "question": "Bao lâu phải thay đổi mật khẩu?",
+    "ground_truth": "Mật khẩu phải thay đổi mỗi 90 ngày."
+  },
+  {
+    "question": "Nghị định 13/2023 nói về nội dung gì?",
+    "ground_truth": "Nghị định 13/2023 quy định về bảo vệ dữ liệu cá nhân."
+  }
 ]

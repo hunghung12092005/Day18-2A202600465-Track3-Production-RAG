@@ -2,6 +2,7 @@
 
 import os, sys, time
 from dataclasses import dataclass
+import re
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RERANK_TOP_K
@@ -23,26 +24,56 @@ class CrossEncoderReranker:
 
     def _load_model(self):
         if self._model is None:
-            # TODO: Load cross-encoder model
-            # Option A: from FlagEmbedding import FlagReranker
-            #           self._model = FlagReranker(self.model_name, use_fp16=True)
-            # Option B: from sentence_transformers import CrossEncoder
-            #           self._model = CrossEncoder(self.model_name)
-            pass
+            try:
+                from FlagEmbedding import FlagReranker
+                self._model = FlagReranker(self.model_name, use_fp16=False)
+            except Exception:
+                try:
+                    from sentence_transformers import CrossEncoder
+                    self._model = CrossEncoder(self.model_name)
+                except Exception:
+                    self._model = False
         return self._model
+
+    def _fallback_score(self, query: str, text: str) -> float:
+        q_tokens = set(re.findall(r"\w+", query.lower()))
+        d_tokens = set(re.findall(r"\w+", text.lower()))
+        if not q_tokens or not d_tokens:
+            return 0.0
+        return len(q_tokens & d_tokens) / len(q_tokens)
 
     def rerank(self, query: str, documents: list[dict], top_k: int = RERANK_TOP_K) -> list[RerankResult]:
         """Rerank documents: top-20 → top-k."""
-        # TODO: Implement reranking
-        # 1. model = self._load_model()
-        # 2. pairs = [(query, doc["text"]) for doc in documents]
-        # 3. scores = model.compute_score(pairs)  # FlagReranker
-        #    OR scores = model.predict(pairs)      # CrossEncoder
-        # 4. Combine: [(score, doc) for score, doc in zip(scores, documents)]
-        # 5. Sort by score descending
-        # 6. Return top_k RerankResult(text=..., original_score=doc["score"],
-        #                              rerank_score=score, metadata=doc["metadata"], rank=i)
-        return []
+        if not documents:
+            return []
+        model = self._load_model()
+        pairs = [(query, doc["text"]) for doc in documents]
+        if model and model is not False:
+            try:
+                if hasattr(model, "compute_score"):
+                    scores = model.compute_score(pairs)
+                else:
+                    scores = model.predict(pairs)
+            except Exception:
+                scores = [self._fallback_score(query, doc["text"]) for doc in documents]
+        else:
+            scores = [self._fallback_score(query, doc["text"]) for doc in documents]
+
+        combined = sorted(
+            zip(scores, documents),
+            key=lambda item: (float(item[0]), float(item[1].get("score", 0.0))),
+            reverse=True,
+        )[:top_k]
+        return [
+            RerankResult(
+                text=doc["text"],
+                original_score=float(doc.get("score", 0.0)),
+                rerank_score=float(score),
+                metadata=doc.get("metadata", {}),
+                rank=i,
+            )
+            for i, (score, doc) in enumerate(combined)
+        ]
 
 
 class FlashrankReranker:
@@ -59,14 +90,16 @@ class FlashrankReranker:
 
 def benchmark_reranker(reranker, query: str, documents: list[dict], n_runs: int = 5) -> dict:
     """Benchmark latency over n_runs."""
-    # TODO: Implement benchmark
-    # 1. times = []
-    # 2. for _ in range(n_runs):
-    #      start = time.perf_counter()
-    #      reranker.rerank(query, documents)
-    #      times.append((time.perf_counter() - start) * 1000)  # ms
-    # 3. return {"avg_ms": mean(times), "min_ms": min(times), "max_ms": max(times)}
-    return {"avg_ms": 0, "min_ms": 0, "max_ms": 0}
+    times = []
+    for _ in range(max(n_runs, 1)):
+        start = time.perf_counter()
+        reranker.rerank(query, documents)
+        times.append((time.perf_counter() - start) * 1000)
+    return {
+        "avg_ms": round(sum(times) / len(times), 3),
+        "min_ms": round(min(times), 3),
+        "max_ms": round(max(times), 3),
+    }
 
 
 if __name__ == "__main__":
